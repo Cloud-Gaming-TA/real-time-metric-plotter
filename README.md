@@ -1,5 +1,5 @@
 # Run
-1. install the dependencies
+1. install the dependencies. I highly recommend to install this inside python virtual environment. You can go to this [link](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/) for more details on how to create venv
 ```
 pip install -r requirements.txt
 ```
