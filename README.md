@@ -9,6 +9,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
+If your python version >= 3.8 and using windows, then i think you are fine. Else, maybe there could be
+some compatibility issues. 
+
 
 # Adding metric to the plot
 Modify the __init__.py file. 
@@ -40,8 +43,13 @@ metric that this reader offers. As of now, there are two Reader available that y
 ## Is there format of the configurations that i can refer to?
 Yes, it's inside the __init__.py file
 
-## What is a sink?
-Sink is the reader that offer the metric, make sure to instantinate the reader first. 
+## What is a source?
+Source is the reader that offer the metric, make sure to instantinate the reader first. 
 
-## Can you add a new sink?
+## Can you add a new source?
 Yes, you can create a new reader class by inheriting from Reader class. 
+
+## Can i save the data?
+Yes, by default, plotter will save the plot data into a csv, located at ./out/plot/csv.
+
+
