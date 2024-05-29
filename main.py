@@ -1,8 +1,8 @@
 import traceback
 from time import sleep
 
-from figure.plotter import Plotter, DynamicPlot
-from figure.window import MatplotlibFigureScrollableWindow
+from Figure.plotter import Plotter, DynamicPlot
+from Figure.window import MatplotlibFigureScrollableWindow
 
 from __init__ import *
 
@@ -17,7 +17,7 @@ if __name__ == "__main__":
             plot = DynamicPlot(**conf)
             plots.append(plot)
             
-        plotter = Plotter(plots=plots, show=False)
+        plotter = Plotter(plots=plots, sink_type=Plotter.SinkType.CSV ,show=False)
         window = MatplotlibFigureScrollableWindow(plotter)
         
         while moonlight_reader.thread.is_alive():
@@ -26,16 +26,18 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Keyboard Interrupt")
         # writer.terminate()
-        for reader in readers:
-            reader.terminate()
+        
     
     except Exception as e:
         print(e)
         traceback.print_exc()
         print("some exception happened!")
         # writer.terminate()
+    
+    finally:
         for reader in readers:
             reader.terminate()
-    
+
+        plotter.terminate_sink()
     
     
