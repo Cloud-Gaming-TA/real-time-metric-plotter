@@ -1,3 +1,6 @@
+from enum import Enum
+from datetime import datetime
+
 import numpy as np
 
 import matplotlib.axes
@@ -5,9 +8,11 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 from MetricReader.reader import Reader
+from Sink.sink import Sink
+from Sink.csv_sink import CSVSink
 
 class DynamicPlot():
-    def __init__(self, metrics : list[dict] = [], sink : Reader = None, max_points : int = 100, title="", ylim : tuple = None, xlabel : str = "", ylabel : str = "", bg : str ="#ffffff", color : str = "#1f77b4") -> None:
+    def __init__(self, metrics : list[dict] = [], source : Reader = None, max_points : int = 100, title="", ylim : tuple = None, xlabel : str = "", ylabel : str = "", bg : str ="#ffffff", color : str = "#1f77b4") -> None:
         self.max_points = max_points
         self.lines = [None for i in range(len(metrics))]
         self.data = [None for i in range(len(metrics))]
@@ -25,23 +30,33 @@ class DynamicPlot():
 
         self.title = title
 
-        if not issubclass(type(sink), Reader):
-            raise ValueError("sink must be a subclass of", Reader)
+        if not issubclass(type(source), Reader):
+            raise ValueError("source must be a subclass of", Reader)
         
-        self._sink = sink
+        self._source = source
+        self._sink = None
         
         self._ax = None
         
         self._last_value = [0 for i in range(len(metrics))]
         
+    def get_metric_name(self):
+        res = []
+        for metric in self.metrics:
+            res.append(metric["metric_id"].name)
         
+        return res
+    
     def add_point(self, i, point):
         self.data[i] = np.roll(self.data[i], -1)
         self.data[i][-1] = point
         
-    def set_sink(self, sink):
-        self._sink = sink
+    def set_source(self, source):
+        self._source = source
     
+    def set_sink(self, sink : Sink):
+        self._sink = sink
+        
     def set_axis(self, ax):
         self._ax : matplotlib.axes.Axes = ax
         
@@ -71,7 +86,7 @@ class DynamicPlot():
             self._update_per_metric(i, metric, _)
             
         return self.lines
-            
+    
     def _update_per_metric(self, i, metric : dict, _=0):
         # Due to the unblocking nature of this function design
         # on each update cyle, the data that are captured
@@ -80,14 +95,14 @@ class DynamicPlot():
         # point gen can use some somoothing function to improve
         # plotting accuracy
         
-        if self._sink.get() is None or self._sink.get()[metric["metric_id"]] == -1:
+        metric_id = metric["metric_id"]
+        
+        if self._source.get() is None or self._source.get()[metric_id.value] == -1:
             self.add_point(i, self._last_value[i])
         else: 
-            self.add_point(i, self._sink.get()[metric["metric_id"]])
-            self._last_value[i] = float(self._sink.get()[metric["metric_id"]])
-        
-        print(f"{self.title}-{metric.get('metric_id')}: {self._last_value[i]}")
-        
+            self.add_point(i, self._source.get()[metric_id.value])
+            self._last_value[i] = float(self._source.get()[metric_id.value])
+                
         if self._last_value[i] > self.ylim[1]:
             self.ylim = (self.ylim[0], self._last_value[i])
             self._ax.set_ylim(0, 1.5 * self._last_value[i])
@@ -96,6 +111,12 @@ class DynamicPlot():
 
         self.lines[i].set_ydata(self.data[i])
         
+        if self._sink != None:
+            self._sink.add_job({
+                "name": metric_id.name,
+                "value": self._last_value[i]
+            })
+            
         # if self._last_value > self.ylim[1]:
         #     self._ax.set_ylim((self.ylim[0], self._last_value * 2))
         #     self._ax.autoscale_view()
@@ -112,9 +133,30 @@ class DynamicPlot():
 
 class Plotter():
     INTERVAL = 100
+    SINK_CSV_OUTPUT_PATH = f"out/plot/csv/{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     
-    def __init__(self, plots : list[DynamicPlot], show=True):
+    class SinkType(Enum):
+        CSV = "csv"
+        TEXT = "text"
+        
+    def __init__(self, plots : list[DynamicPlot], sink_type : SinkType = None, show=True):
+        self.sink_type = sink_type
         self.plots = plots
+        
+        if self.sink_type == self.SinkType.CSV:
+            header = []
+            
+            for plot in self.plots:
+                header.extend(plot.get_metric_name())
+            
+            import pathlib
+            pathlib.Path('out/plot/csv').mkdir(parents=True, exist_ok=True) 
+            self._sink = CSVSink(self.SINK_CSV_OUTPUT_PATH, header=header)
+            self._sink.start()
+            
+        else:
+            self._sink = None
+            
         self._show = show
         self.fig, self.axs = plt.subplots(len(self.plots) // 2 + len(self.plots) % 2, 2, figsize=(10, 4 * (len(self.plots) // 2 + len(self.plots) % 2)), layout="constrained")
         # plt.subplots_adjust(bottom=2)
@@ -125,6 +167,7 @@ class Plotter():
             row = i // 2
             col = i % 2
             plot.set_axis(self.axs[row, col])
+            plot.set_sink(self._sink)
             
         if len(self.plots) % 2 != 0:
             self.fig.delaxes(self.axs[-1, -1])
@@ -132,9 +175,15 @@ class Plotter():
         if self._show:
             self.fig.tight_layout()
 
-            
+    
+    def terminate_sink(self):
+        print("trying to terminate sink")
+        if self._sink != None:
+            self._sink.terminate()
+        print("sink has been terminated gracefully")
+        
     def update(self, _=0):
-        print("Update period start")
+        # print("Update period start")
         lines = []
         for plot in self.plots:
             lines.extend(plot.update(_))
@@ -143,7 +192,7 @@ class Plotter():
     def animate(self, fig=None):
         if fig is None:
             fig = self.fig
-            
+                
         self.ani = animation.FuncAnimation(fig, self.update, interval=self.INTERVAL, blit=True)
         
         if self._show:
