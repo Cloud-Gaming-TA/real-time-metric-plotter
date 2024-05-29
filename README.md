@@ -14,7 +14,7 @@ some compatibility issues.
 
 
 # Adding metric to the plot
-Modify the __init__.py file. 
+To customize the plot, modify the **\_\_init\_\_.py** file. 
 
 Here is an example on adding a cpu usage from process_reader to the plot.
 ```python
@@ -40,7 +40,7 @@ plot_confs = [
 the plot will get a metric from a Reader object. Each class that inherit from Reader will have an Enum class that define the metric this reader offers. As of now, there are two Reader available that you can add to the plot, MoonlightMetricReader and ProcessReader. 
 
 ## Is there format of the configurations that i can refer to?
-Yes, it's inside the **__init__.py** file
+Yes, it's inside the **\_\_init\_\_.py** file
 
 ## What is a source?
 Source is the reader that offer the metric, make sure to instantinate the reader first. 
