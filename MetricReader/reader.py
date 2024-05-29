@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 import threading
 
 class Reader(ABC):
@@ -6,9 +7,9 @@ class Reader(ABC):
     reading data (polling) on some metric. The process is configured
     to run without blocking. 
 """
-    DEFAULT_POLL_RATE_S = 0.1
+    DEFAULT_POLL_RATE_S = 1
      
-    class MetricID():
+    class MetricID(Enum):
         pass
      
     def parse_args(self, **kwargs):
@@ -34,8 +35,10 @@ class Reader(ABC):
         pass
         
     def terminate(self):
+        print("trying to terminate reader")
         self._terminate = True
         self.thread.join()
+        print("reader has been terminated gracefully")
     
     
     def get(self) -> list[str]:
