@@ -1,12 +1,14 @@
 from time import sleep
 from MetricReader.reader import Reader
 
-from util.data_parser import Parser
+from enum import Enum
+
+from Util.data_parser import Parser
 
 class MoonlightMetricReader(Reader):
     """A superclass of Reader that read moonlight overlay performance metric.
     """
-    class MetricID():
+    class MetricID(Enum):
         """Metric ID of Moonlight Metric
         """
         VIDEO_STREAM_RES = 0

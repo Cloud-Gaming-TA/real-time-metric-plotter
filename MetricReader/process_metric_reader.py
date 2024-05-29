@@ -2,14 +2,23 @@ from threading import Thread
 from multiprocessing import Value
 from MetricReader.reader import Reader
 
+from enum import Enum
+
 import psutil
-from scapy.all import sniff, ifaces
+from scapy.all import sniff, ifaces, conf
+
+conf.use_pcap = True
+conf.use_npcap = True
+
 
 class ProcessNetworkMonitor():
-    def __init__(self, proc : list[psutil.Process]):
+    def __init__(self, proc : list[psutil.Process], adapter : str):
+        print(adapter)
+        self._adapter = adapter
         self._proc = proc
         self._net = {}
         self._all_macs = {iface.mac for iface in ifaces.values()}
+        print(self._all_macs)
         
         self.set_process_port()
         
@@ -22,10 +31,11 @@ class ProcessNetworkMonitor():
     
     def set_process_port(self):
         for _proc in self._proc:
-            for pconn in _proc.connections():
-                if pconn.status == "ESTABLISHED":
-                    self._net[(pconn.laddr.port, pconn.raddr.port)] = True
-                    self._net[(pconn.raddr.port, pconn.laddr.port)] = True
+            try:
+                for pconn in _proc.connections():
+                        self._net[pconn.laddr.port] = True
+            except psutil.NoSuchProcess:
+                continue
                     
     def start(self):
         self._terminate = False
@@ -45,18 +55,16 @@ class ProcessNetworkMonitor():
             pass
         
         else:
-            # Check if the packet correspond to the process
-            is_process_packet = self._net.get(packet_connection, False)
-            
-            if is_process_packet:
-                if packet.src in self._all_macs:
-                    self.net_usage[1] += len(packet)
+            if self._net.get(packet_connection[0], False):
+                # upload
+                self.net_usage[1] += len(packet) / (1024 ** (2))
                     
-                else:
-                    self.net_usage[0] += len(packet)
+            elif self._net.get(packet_connection[1], False):
+                # download
+                self.net_usage[0] += len(packet) / (1024 ** (2))
 
     def run(self):
-        sniff(iface="Wi-Fi", prn=self.process_packet, store=False, stop_filter=self.should_sniff_stop)
+        sniff(iface=self._adapter, prn=self.process_packet, store=False, stop_filter=self.should_sniff_stop)
             
         
         
@@ -68,7 +76,7 @@ class ProcessMetricReader(Reader):
     # is thansk to this blog post : https://thepythoncode.com/article/make-a-network-usage-monitor-in-python
     
     
-    class MetricID():
+    class MetricID(Enum):
         CPU_USAGE = 0
         MEMORY = 1
         SENT_BYTES = 2
@@ -76,47 +84,76 @@ class ProcessMetricReader(Reader):
         RECEIVE_BYTES = 4
         UPLOAD_SPEED = 5
     
+    def _maintain_process(self):
+        for i, proc in enumerate(self._proc):
+            if not proc.is_running():
+                self._proc_pid[proc.pid] = False
+                del self._proc[i]
+                
+        self._add_proc(self._process_name)
+        
     @staticmethod
-    def _read_cpu_usge(procs, interval):
+    def _read_cpu_usge(procs : list[psutil.Process], interval, no_process_callback):
         percent = Value("d")
         
         def read(proc):
-            p = proc.cpu_percent(interval)
-            with percent.get_lock():
-                percent.value += p
+            try:
+                p = proc.cpu_percent(interval)
+                with percent.get_lock():
+                    percent.value += p
+            except psutil.NoSuchProcess:
+                no_process_callback()
+                return
                 
         t = []
         
         for _proc in procs:
-            _t = Thread(target=read, args=(_proc, ))
+            
+            _t = Thread(target=read, args=(_proc, ), daemon=True)
             _t.start()
             t.append(_t)
             
         for thread in t:
             thread.join()
-            
+        
+                    
         return percent.value
     
     @staticmethod
-    def _read_mem_usgae(procs):
+    def _read_mem_usgae(procs, no_process_callback):
         mem = 0
         for _proc in procs:
-            mem += _proc.memory_info().rss / (1024 ** 2)
+            try:
+                mem += _proc.memory_info().rss / (1024 ** 2)
+            except psutil.NoSuchProcess:
+                no_process_callback()
+                continue
             
         return mem
-            
-    def parse_args(self, process_name="", **kwargs):
+    
+    
+    def _add_proc(self, process_name, log=False):
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent']):
+            if proc.info['name'] == self._process_name:
+                if log:
+                    print(f"Found process {process_name}. the process has pid : {proc.pid}")
+                
+                if not self._proc_pid.get(proc.pid, False):
+                    # only add new pid proc
+                    self._proc_pid[proc.pid] = True
+                    self._proc.append(proc)
+    
+    def parse_args(self, process_name="", adapter_name="WI-FI", **kwargs):
         if process_name == "":
             raise ValueError("process name is an empty string. ProcessMetricReader must be initialized with a process_name")
         
+        self._adapter_name = adapter_name
         self._process_name = process_name
         self._proc = []
+        self._proc_pid = {}
         
         # Search for the process 
-        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent']):
-            if proc.info['name'] == self._process_name:
-                print(f"Found process {process_name}. the process has pid : {proc.pid}")
-                self._proc.append(proc)
+        self._add_proc(self._process_name, log=True)
             
         
         if len(self._proc) == 0:
@@ -124,7 +161,7 @@ class ProcessMetricReader(Reader):
         
         
         
-        self._net_sniffer = ProcessNetworkMonitor(self._proc)
+        self._net_sniffer = ProcessNetworkMonitor(self._proc, self._adapter_name)
         self._net_sniffer.start()
             
         # self._pconn = (self._proc.connections()[0].laddr, self._proc.connections()[0].raddr)
@@ -134,13 +171,18 @@ class ProcessMetricReader(Reader):
     def run(self):
         data = [-1, -1, 0, 0, 0, 0]
         while not self._terminate:
+            # Maintain the process 
+            # self._maintain_process()
+            # self._add_proc(self._process_name)
+            
             # this will block / pause the reader (equal with sleep)
-            data[self.MetricID.CPU_USAGE] = self._read_cpu_usge(self._proc, self._poll_rate)
-            data[self.MetricID.MEMORY] = self._read_mem_usgae(self._proc)
-            data[self.MetricID.DOWNLOAD_SPEED] = (self._net_sniffer.net_usage[0] - data[self.MetricID.RECEIVE_BYTES]) / self._poll_rate / 1024
-            data[self.MetricID.UPLOAD_SPEED] = (self._net_sniffer.net_usage[1] - data[self.MetricID.SENT_BYTES]) / self._poll_rate / 1024
-            data[self.MetricID.RECEIVE_BYTES] = self._net_sniffer.net_usage[0] / 1024
-            data[self.MetricID.SENT_BYTES] = self._net_sniffer.net_usage[1] / 1024
+            data[self.MetricID.CPU_USAGE.value] = self._read_cpu_usge(self._proc, self._poll_rate, self._maintain_process) / psutil.cpu_count()
+            data[self.MetricID.MEMORY.value] = self._read_mem_usgae(self._proc, self._maintain_process)
+            data[self.MetricID.DOWNLOAD_SPEED.value] = (self._net_sniffer.net_usage[0] - data[self.MetricID.RECEIVE_BYTES.value]) / self._poll_rate
+            data[self.MetricID.UPLOAD_SPEED.value] = (self._net_sniffer.net_usage[1] - data[self.MetricID.SENT_BYTES.value]) / self._poll_rate 
+            data[self.MetricID.RECEIVE_BYTES.value] = self._net_sniffer.net_usage[0]
+            data[self.MetricID.SENT_BYTES.value] = self._net_sniffer.net_usage[1]
+                       
             self._curr_value = data
             
             # recalculate the port of the process to see if new
