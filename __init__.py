@@ -12,8 +12,9 @@ moonlight_reader = MoonlightMetricReader(filename=FILENAME)
 
 
 # Procee reader
-PROCESS_NAME="msedge.exe"
-process_reader = ProcessMetricReader(process_name=PROCESS_NAME, poll_rate=1)
+NET_ADAPTER = "Wi-Fi"
+PROCESS_NAME="Spotify.exe"
+process_reader = ProcessMetricReader(process_name=PROCESS_NAME, adapter_name=NET_ADAPTER, poll_rate=0.5)
 
 
 
@@ -39,7 +40,7 @@ mpl.style.use('seaborn-v0_8-deep')
         ...
     ] (Required atleast 1)
     
-    "sink" : process_reader / reader / any subclass of Reader (Required)
+    "source" : process_reader / reader / any subclass of Reader (Required)
     "maxpoint" : max_point on the axis (Optional)
     "title": "my plot" (Optional)
     "xlabel" : "time" (Optional)
@@ -60,10 +61,28 @@ plot_confs = [
             }
         ],
         
-        "sink": process_reader,
+        "source": process_reader,
         "title": "CPU Usage",
         "ylim": [0, 100],
         "ylabel": "Utiliaztion(%)"   
+    },
+    {
+        "metrics": [
+            {
+                "metric_id": process_reader.MetricID.RECEIVE_BYTES,
+                "label": "Receive Bytes",
+                "color": "#3b2b4b"
+            },
+            {
+                "metric_id": process_reader.MetricID.SENT_BYTES,
+                "label": "Sent Bytes",
+                "color": "#ff000a"
+            }   
+        ],
+        "source": process_reader,
+        "title": "Network Usage",
+        "ylim": [0, 100],
+        "ylabel": "Network Usage(in MiB)"
     },
     {
         "metrics": [
@@ -78,10 +97,10 @@ plot_confs = [
                 "color": "#ff000a"
             }   
         ],
-        "sink": process_reader,
+        "source": process_reader,
         "title": "Network Speed",
-        "ylim": [0, 1000],
-        "ylabel": "Network Usage(in bytes)"
+        "ylim": [0, 15],
+        "ylabel": "Network Speed(in MiB/s)"
     },
     {
         "metrics": [
@@ -90,10 +109,22 @@ plot_confs = [
                 "color": "#2b2b2b"
             },
         ],
-        "sink": moonlight_reader,
+        "source": moonlight_reader,
         "title": "Video FPS",
         "ylim": [0, 60],
         "ylabel": "FPS"
+    },
+    {
+        "metrics": [
+            {
+                "metric_id": moonlight_reader.MetricID.AVERAGE_NETWORK_LATENCY,
+                "color": "#2b2b2b"
+            },
+        ],
+        "source": moonlight_reader,
+        "title": "Network Latency",
+        "ylim": [0, 60],
+        "ylabel": "Latency (ms)"
     }
 ]
     
